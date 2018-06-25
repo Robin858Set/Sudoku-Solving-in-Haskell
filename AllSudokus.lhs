@@ -3,14 +3,19 @@
 > import Data.Char
 > import Data.List
 > import System.Random
+> import Debug.Trace
 
 The following code integrates the code for solving Sudokus for different types
 of Sudokus: the usual type, a type with four additional 3x3 blocks with left-top
 corners (2,2), (2,6), (6,2), and (6,6), and a type where the diagonals require
 an injective function from 1-9.
 
-I still want to implement an extra input argument in solveAndShow that clarifies what type
-of Sudoku it is that needs to be solved, so that the right functions can be used.
+To Do:
+However, a better indicator for "how hard" a Sudoku is might be to keep
+track of the search process (which you can also think of as a tree). To
+do that, you could add counters to the recursive functions, so that we
+know how many steps of reasoning or how many tries the program needed
+before it found a solution.
 
 > type Row    = Int
 > type Column = Int
@@ -85,57 +90,47 @@ For the Sudoku with the four extra 3x3 blocks, we define additional blocks:
 > addbl x = concat $ filter (elem x) addblocks
 
 We now define restrictions that distinguish between different parts of the
-Sudoku that require injectivity.
+Sudoku that require injectivity. `Restriction' gives all coordinates of a certain
+restriction.
 
-> -- type Restriction = [(Row,Column)]
+> type Restriction = (Row,Column) -> [(Row,Column)]
 
-> type Restriction = Sudoku -> (Row, Column) -> [Value]
+RemainingValues gives you list of all values in that restriction.
+
+> allValues :: Restriction -> Sudoku -> (Row, Column) -> [Value]
+> allValues res s (r,c) = map s (res (r,c))
 
 > row :: Restriction
-> row s (r,_) = [s (r, c') | c' <- positions]
+> row (r,_) = [(r, c') | c' <- positions]
 
 > column :: Restriction
-> column s (_, c) = [s (r', c) | r' <- positions]
+> column (_, c) = [ (r', c) | r' <- positions]
 
 > subGrid :: Restriction
-> subGrid s (r, c) = [ s (r', c') | r' <- bl r, c' <- bl c]
+> subGrid (r, c) = [ (r', c') | r' <- bl r, c' <- bl c]
 
 > diagonalUp :: Restriction
-> diagonalUp s (r, c) = [ s (r',c') | r' <- positions, c' <- positions, (r' + c') == 10, (r + c) == 10 ]
+> diagonalUp (r, c) = [ (r',c') | r' <- positions, c' <- positions, (r' + c') == 10, (r + c) == 10 ]
 
 > diagonalDown :: Restriction
-> diagonalDown s (r,c) = [ s (r',c') | r' <- positions, c' <- positions, r' == c', r == c]
+> diagonalDown (r,c) = [ (r',c') | r' <- positions, c' <- positions, r' == c', r == c]
 
 > addsubGrid :: Restriction
-> addsubGrid s (r,c) = [ s (r', c') | r' <- addbl r, c' <- addbl c ]
+> addsubGrid (r,c) = [ (r', c') | r' <- addbl r, c' <- addbl c ]
 
 > allRestrictions = [row, column, subGrid, diagonalUp, diagonalDown, addsubGrid]
 
 Free values are available values at open slot positions. We define the free values for
 every restriction:
 
-> -- freeIn :: Restriction -> Sudoku -> [Value]
-
 > freeInSeq :: [Value] -> [Value]
 > freeInSeq sequ = values \\ sequ
 
-freeIn lets you select the type of restriction that you want:
+New freeAtPos (foldr1 takes two elements out of the list, applies intersect, and then intersects that with the next element, etc):
+freeInSeq still needs to be applied to remainingValues!
 
-> freeIn :: Restriction -> Sudoku -> (Row, Column) -> [Value]
-> freeIn x s (r,c) = freeInSeq (x s (r,c))
-
-> -- freeInSeq = freeIn (row (r,c))
-
-The freeAtPos definition should be made more concise, e.g. with map, only I couldn't
-figure out how to implement `intersect` then:
-
-> freeAtPos :: Sudoku -> (Row,Column) -> [Value]
-> freeAtPos s (r,c) = freeIn row s (r,c)
->                         `intersect` freeIn column s (r,c)
->                         `intersect` freeIn subGrid s (r,c)
->                         `intersect` freeIn diagonalUp s (r,c)
->                         `intersect` freeIn diagonalDown s (r,c)
->                         `intersect` freeIn addsubGrid s (r,c)
+> freeAtPos :: [Restriction] -> Sudoku -> (Row,Column) -> [Value]
+> freeAtPos x s (r,c) = foldr1 intersect [ freeInSeq (allValues res s (r,c)) | res <- x ]
 
 The injectivity checks also allow for choosing a restriction:
 
@@ -144,13 +139,13 @@ The injectivity checks also allow for choosing a restriction:
 
 > injectiveFor :: Restriction -> Sudoku -> (Row, Column) -> Bool
 > injectiveFor x s (r,c) = injective vs where
->    vs = filter (/= 0) (x s (r, c))
+>    vs = filter (/= 0) (map s $ x (r, c)) -- TODO think about this!
 
 Consistency checks for injectivity for every restriction:
 
-> consistent :: Sudoku -> Bool
-> consistent s =
->    not (False `elem` [ injectiveFor res s (r,c) | res <- allRestrictions, r <- positions, c <- positions])
+> consistent :: [Restriction] -> Sudoku -> Bool
+> consistent x s =
+>    not (False `elem` [ injectiveFor res s (r,c) | res <- x, r <- positions, c <- positions])
 
 > extend :: Sudoku -> ((Row,Column),Value) -> Sudoku
 > extend = update
@@ -168,48 +163,68 @@ Consistency checks for injectivity for every restriction:
 > solved  :: Node -> Bool
 > solved = null . snd
 
-> extendNode :: Node -> Constraint -> [Node]
-> extendNode (s,constr) (r,c,vs) =
+> extendNode :: [Restriction] -> Node -> Constraint -> [Node]
+> extendNode us (s,constr) (r,c,vs) =
 >    [(extend s ((r,c),v),
 >      sortBy length3rd $
->          prune (r,c,v) constr) | v <- vs ]
+>          prune us (r,c,v) constr) | v <- vs ]
 
 > length3rd :: (a,b,[c]) -> (a,b,[c]) -> Ordering
 > length3rd (_,_,zs) (_,_,zs') = compare (length zs) (length zs')
 
-> prune :: (Row,Column,Value)
+> prune :: [Restriction] -> (Row,Column,Value)
 >       -> [Constraint] -> [Constraint]
-> prune _ [] = []
-> prune (r,c,v) ((x,y,zs):rest)
->   | r == x = (x,y,zs\\[v]) : prune (r,c,v) rest
->   | c == y = (x,y,zs\\[v]) : prune (r,c,v) rest
->   | sameblock (r,c) (x,y) =
->         (x,y,zs\\[v]) : prune (r,c,v) rest
->   | otherwise = (x,y,zs) : prune (r,c,v) rest
+> prune _  _ [] = []
+> prune us (r,c,v) ((x,y,zs):rest)
+>   | r == x = (x,y,zs\\[v]) : prune us (r,c,v) rest
+>   | c == y = (x,y,zs\\[v]) : prune us (r,c,v) rest
+>   | same us (r,c) (x,y) =
+>         (x,y,zs\\[v]) : prune us (r,c,v) rest
+>   | otherwise = (x,y,zs) : prune us (r,c,v) rest
 
 The sameblock function should return True when a position is in the same subgrid,
 and optionally in the same diagonal and additional subgrid. Right now it will always return
 True when it is in the same diagonal and additional subgrid (even if it is a normal Sudoku).
 
-> sameblock :: (Row,Column) -> (Row,Column) -> Bool
-> sameblock (r,c) (x,y) | (bl r == bl x) && (bl c == bl y)                             = True
->                       | (r == c && x == y) || ((r + c == 10) && (x + y == 10))       = True
->                       | (addbl r == addbl x) && (addbl c == addbl y)                 = True
->                       | otherwise                                                    = False
+OLD CODE--
+ sameblocknormal :: (Row,Column) -> (Row,Column) -> Bool
+ sameblocknormal (r,c) (x,y) = (bl r == bl x) && (bl c == bl y)
 
-> initNode :: Grid -> [Node]
-> initNode gr = let s = grid2sud gr in
->               if (not . consistent) s then []
->               else [(s, constraints s)]
+ sameblockdiag :: (Row,Column) -> (Row,Column) -> Bool
+ sameblockdiag (r,c) (x,y) | (bl r == bl x) && (bl c == bl y)                             = True
+                           | (r == c && x == y) || ((r + c == 10) && (x + y == 10))       = True
+                           | otherwise                                                    = False
+
+ sameblockadd :: (Row,Column) -> (Row,Column) -> Bool
+ sameblockadd (r,c) (x,y) | (bl r == bl x) && (bl c == bl y)                             = True
+                          | (addbl r == addbl x) && (addbl c == addbl y)                 = True
+                          | otherwise                                                    = False
+--
+
+Addition sameFor: cannot be empty list as otherwise e.g. coordinates that are both not in
+either diagonal are considered to be in a same block.
+
+> sameFor :: Restriction -> (Row,Column) -> (Row,Column) -> Bool
+> sameFor u (r,c) (x,y) = (u (r,c) == u (x,y)) && not (u (r, c) == [])
+
+> same :: [Restriction] -> (Row,Column) -> (Row,Column) -> Bool
+> same us (r,c) (x,y) = or [ sameFor u (r,c) (x,y) | u <- us ]
+
+> initNode :: Grid -> [Restriction] -> [Node]
+> initNode gr x = let s = grid2sud gr in
+>               if not (consistent x s) then []
+>               else [(s, constraints s x)]
+
+-- old code:               if (not . consistent) s then []
 
 > openPositions :: Sudoku -> [(Row,Column)]
 > openPositions s = [ (r,c) | r <- positions,
 >                             c <- positions,
 >                             s (r,c) == 0 ]
 
-> constraints :: Sudoku -> [Constraint]
-> constraints s = sortBy length3rd
->     [(r,c, freeAtPos s (r,c)) |
+> constraints :: Sudoku -> [Restriction] -> [Constraint]
+> constraints s x = sortBy length3rd
+>     [(r,c, freeAtPos x s (r,c)) |
 >                        (r,c) <- openPositions s ]
 
 > search :: (node -> [node])
@@ -219,20 +234,31 @@ True when it is in the same diagonal and additional subgrid (even if it is a nor
 >   | goal x    = x : search children goal xs
 >   | otherwise = search children goal ((children x) ++ xs)
 
-> solveNs :: [Node] -> [Node]
-> solveNs = search succNode solved
+> solveNs :: [Restriction] -> [Node] -> [Node]
+> solveNs us = search (succNode us) solved
 >
-> succNode :: Node -> [Node]
-> succNode (s,[]) = []
-> succNode (s,p:ps) = extendNode (s,ps) p
+> succNode :: [Restriction] -> Node -> [Node]
+> succNode us (s,[]) = []
+> succNode us (s,p:ps) = extendNode us (s,ps) p
 
-> solveAndShow :: Grid -> IO[()]
-> solveAndShow gr = solveShowNs (initNode gr)
+> solveAndShow :: Grid -> [Restriction] -> IO[()]
+> solveAndShow gr x = solveShowNs x (initNode gr x)
 
 solveAndShow should be adapted into a function that takes into account the type of Sudoku.
 
-> solveShowNs :: [Node] -> IO[()]
-> solveShowNs = sequence . fmap showNode . solveNs
+> solveShowNs :: [Restriction] -> [Node] -> IO[()]
+> solveShowNs us = sequence . fmap showNode . (solveNs us)
+
+We define the following lists of restrictions to make it shorter:
+
+> normal :: [Restriction]
+> normal = [row, column, subGrid]
+
+> diagonal :: [Restriction]
+> diagonal = [row, column, subGrid, diagonalUp, diagonalDown]
+
+> addGrid :: [Restriction]
+> addGrid = [row, column, subGrid, addsubGrid]
 
 > examplenormal :: Grid
 > examplenormal = [[5,3,0,0,7,0,0,0,0],
