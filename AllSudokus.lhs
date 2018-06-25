@@ -3,7 +3,6 @@
 > import Data.Char
 > import Data.List
 > import System.Random
-> import Debug.Trace
 
 The following code integrates the code for solving Sudokus for different types
 of Sudokus: the usual type, a type with four additional 3x3 blocks with left-top
@@ -35,6 +34,8 @@ before it found a solution.
 > showVal 0 = " "
 > showVal d = show d
 
+BETTER:
+
 > showRow :: [Value] -> IO()
 > showRow [a1,a2,a3,a4,a5,a6,a7,a8,a9] =
 >  do  putChar '|'         ; putChar ' '
@@ -51,15 +52,16 @@ before it found a solution.
 >      putStr (showVal a9) ; putChar ' '
 >      putChar '|'         ; putChar '\n'
 
+
 > showGrid :: Grid -> IO()
 > showGrid [as,bs,cs,ds,es,fs,gs,hs,is] =
->  do putStrLn ("+-------+-------+-------+")
+>  do putStrLn "+-------+-------+-------+"
 >     showRow as; showRow bs; showRow cs
->     putStrLn ("+-------+-------+-------+")
+>     putStrLn "+-------+-------+-------+"
 >     showRow ds; showRow es; showRow fs
->     putStrLn ("+-------+-------+-------+")
+>     putStrLn "+-------+-------+-------+"
 >     showRow gs; showRow hs; showRow is
->     putStrLn ("+-------+-------+-------+")
+>     putStrLn "+-------+-------+-------+"
 
 > type Sudoku = (Row,Column) -> Value
 
@@ -71,7 +73,7 @@ before it found a solution.
 > grid2sud gr = \ (r,c) -> pos gr (r,c)
 >   where
 >   pos :: [[a]] -> (Row,Column) -> a
->   pos gr (r,c) = (gr !! (r-1)) !! (c-1)
+>   pos gri (r,c) = (gri !! (r-1)) !! (c-1)
 
 > showSudoku :: Sudoku -> IO()
 > showSudoku = showGrid . sud2grid
@@ -118,6 +120,7 @@ RemainingValues gives you list of all values in that restriction.
 > addsubGrid :: Restriction
 > addsubGrid (r,c) = [ (r', c') | r' <- addbl r, c' <- addbl c ]
 
+> allRestrictions :: [Restriction]
 > allRestrictions = [row, column, subGrid, diagonalUp, diagonalDown, addsubGrid]
 
 Free values are available values at open slot positions. We define the free values for
@@ -145,7 +148,7 @@ Consistency checks for injectivity for every restriction:
 
 > consistent :: [Restriction] -> Sudoku -> Bool
 > consistent x s =
->    not (False `elem` [ injectiveFor res s (r,c) | res <- x, r <- positions, c <- positions])
+>    and [ injectiveFor res s (r,c) | res <- x, r <- positions, c <- positions]
 
 > extend :: Sudoku -> ((Row,Column),Value) -> Sudoku
 > extend = update
@@ -205,7 +208,7 @@ Addition sameFor: cannot be empty list as otherwise e.g. coordinates that are bo
 either diagonal are considered to be in a same block.
 
 > sameFor :: Restriction -> (Row,Column) -> (Row,Column) -> Bool
-> sameFor u (r,c) (x,y) = (u (r,c) == u (x,y)) && not (u (r, c) == [])
+> sameFor u (r,c) (x,y) = (u (r,c) == u (x,y)) && not ( null (u (r, c)))
 
 > same :: [Restriction] -> (Row,Column) -> (Row,Column) -> Bool
 > same us (r,c) (x,y) = or [ sameFor u (r,c) (x,y) | u <- us ]
@@ -229,27 +232,30 @@ either diagonal are considered to be in a same block.
 
 > search :: (node -> [node])
 >        -> (node -> Bool) -> [node] -> [node]
-> search children goal [] = []
+> search _ _ [] = []
 > search children goal (x:xs)
 >   | goal x    = x : search children goal xs
->   | otherwise = search children goal ((children x) ++ xs)
+>   | otherwise = search children goal (children x ++ xs)
 
 > solveNs :: [Restriction] -> [Node] -> [Node]
 > solveNs us = search (succNode us) solved
 >
 > succNode :: [Restriction] -> Node -> [Node]
-> succNode us (s,[]) = []
+> succNode _ ( _ , [] ) = []
 > succNode us (s,p:ps) = extendNode us (s,ps) p
 
 > solveAndShow :: Grid -> [Restriction] -> IO[()]
 > solveAndShow gr x = solveShowNs x (initNode gr x)
 
-solveAndShow should be adapted into a function that takes into account the type of Sudoku.
+solveAndShow is adapted into a function that takes into account the type of Sudoku.
 
 > solveShowNs :: [Restriction] -> [Node] -> IO[()]
-> solveShowNs us = sequence . fmap showNode . (solveNs us)
+> solveShowNs us = traverse showNode . solveNs us
+
+Old code solveShowNs: sequence . fmap showNode . (solveNs us)
 
 We define the following lists of restrictions to make it shorter:
+(e.g. run `solveAndShow examplediag diagonal`)
 
 > normal :: [Restriction]
 > normal = [row, column, subGrid]
