@@ -1,0 +1,270 @@
+\documentclass[12pt,a4paper]{article}
+\input{latexmacros.tex}
+
+\title{Sudoku Solving in Haskell}
+\author{Robin Martinot, 10589155}
+\date{\today}
+\hypersetup{pdfauthor={Robin}, pdftitle={SudokuSolving}}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+The goal of this project was to adapt and extend existing code for solving Sudoku
+puzzles in Haskell to code that solves and generates various different types of Sudokus. Additionally, the difficulty of solving these types of Sudokus was measured
+by implementing a counter in a recursive function of the code. It seems that with the
+current measure of complexity it is hard to conclude exactly how `difficult' Haskell finds
+the Sudoku, although the new types of Sudokus seemed harder to solve than the regular Sudoku.
+Nevertheless, the results were rather variable and additional research is required in order
+to draw any reliable conclusions.
+\end{abstract}
+
+\section{Introduction}
+Implementation of numeric puzzles, in particular Sudokus, can be
+carried out in many programming languages. Haskell, too, has been used to generate and solve
+the logic-based number-placement Sudoku puzzle (for existing code, see https://homepages.cwi.nl/~jve/courses/16/fsa/lab/FSAlab3.html).
+Briefly, the objective of the Sudoku is to fill a $9 \times 9$ grid with digits so that each column, each row, and each
+of the nine $3 \times 3$ subgrids that compose the grid contain all of the digits
+from 1 to 9. Translating this to code, this entails that there has to
+be a surjective and injective function $f: \{1, ..., 9 \} \rightarrow R$ where $R$ is
+one of the rows, one of the columns or one of the subgrids.\\\\
+It is unclear whether code adapted to variations of this puzzle changes
+the complexity of finding a solution such that it is detectable in Haskell. We might expect that adding
+extra requirements to the puzzle forces Haskell to check for consistency more often, so that
+it is less easy to find suitable values. Alternatively, additional requirements might limit the possibilities
+for new values in open positions, so that it is in fact easier for Haskell to extend the Sudoku with new values.\\\\
+To test these hypotheses, code was generated in the current project for two different types of Sudokus besides the regular one.
+A `diagonal' Sudoku required both diagonals to contain all of the values $1$ up to $9$. Additionally,
+a Sudoku type was implemented with four additional $3 \times 3$ blocks with left-top corners
+$(2,2)$, $(2,6)$, $(6,2)$, and $(6,6)$ (coordinates denoting positions by (row, column)).
+An attempt at comparing the complexity of the different types of Sudokus was made.
+
+\section{Methods}
+(The complete code can be found at the bottom of this report). First, the code for regular Sudokus was adapted to `diagonal' Sudokus and Sudokus
+with additional subgrids. This entailed adding a definition of the required additional blocks, and
+adding a `Restriction' type which specifies the elements of both diagonals and the additional blocks
+(besides row, column and subgrid).
+Instead of writing code for each restriction separately, the Restriction type was added as input
+argument to functions like `injectiveFor', `consistent' and `freeAtPos', so that these only needed one instance.
+For example, the latter function, which computes which values are available at a certain position in the grid, now looks like this:
+\begin{code}
+freeAtPos :: [Restriction] -> Sudoku -> (Row,Column) -> [Value]
+freeAtPos x s (r,c) = foldr1 intersect [ freeInSeq (allValues res s (r,c)) | res <- x ]
+\end{code}
+The following lists of restrictions were defined, which describe all of the requirements
+that each type of Sudoku should adhere to:
+\begin{code}
+normal :: [Restriction]
+normal = [row, column, subGrid]
+
+diagonal :: [Restriction]
+diagonal = [row, column, subGrid, diagonalUp, diagonalDown]
+
+addGrid :: [Restriction]
+addGrid = [row, column, subGrid, addsubGrid]
+\end{code}
+In particular, the solveAndShow function now works by taking into account the type of Sudoku:
+\begin{code}
+solveAndShow :: Grid -> [Restriction] -> IO ()
+solveAndShow gr x = solveShowNs x (initNode gr x)
+\end{code}
+
+Second, the random Sudoku generator was adapted so that it generates each type of
+Sudoku. For this, an additional input argument for the list of restrictions that
+decides the type of Sudoku was added to the existing functions. This way,
+the code generates a filled Sudoku of the right type and subsequently removes values
+until no value can be removed without the Sudoku becoming unsolvable.\\
+The generated problem Sudoku is then fed back into the Sudoku solver. For this, the function
+`genAndSolve' was defined:
+\begin{code}
+genAndSolve :: [Restriction] -> IO ()
+genAndSolve x = do (_,s) <- sudGen x
+                   showSudoku s
+                   solveAndShow (sud2grid s) x
+\end{code}\\\\
+Third, to gain more insight into the search process, a counter was added to the recursive function `search'.
+This way, the number of tries Haskell needs to find a solution was kept track of.
+The function `solveAndShow' returns the number of counted steps along
+with the solved Sudoku.\\\\
+\begin{code}
+search :: Int -> (node -> [node])
+        -> (node -> Bool) -> [node] -> ([node], Int)
+search w _ _ [] = ([],w)
+search w children goal (x:xs)
+  | goal x    = (x : fst (search w children goal xs), w)
+  | otherwise = search (w+1) children goal (children x ++ xs)
+\end{code}
+Finally, the `genAndSolve' function was run 20 times for each type of Sudoku.
+\begin{code}
+genAndSolve :: [Restriction] -> IO ()
+genAndSolve x = do (_,s) <- sudGen x
+                  showSudoku s
+                  solveAndShow (sud2grid s) x
+\end{code}
+
+\section{Results}
+The results are displayed in Table 1, 2 and 3 below. Each column shows the results of
+running genAndSolve ten times. The average number of steps per column can be found in bold at the bottom,
+below which the overall average is shown.
+\begin{center}
+ \begin{tabular}{|c | c |}
+ \hline
+ \multicolumn{2}{|c|}{\textbf{Number of steps regular Sudoku}} \\[0.5ex]
+ \hline\hline
+ 62 & 248  \\
+ \hline
+ 133 & 76 \\
+ \hline
+ 59 & 594 \\
+ \hline
+ 248 & 290 \\
+ \hline
+ 232 & 75 \\
+ \hline
+ 319 & 473 \\
+ \hline
+ 55 & 57 \\
+ \hline
+ 59 & 60 \\
+ \hline
+ 60 & 96 \\
+ \hline
+ 419 & 976 \\
+ \hline\hline
+ \textbf{164.6} & \textbf{294.5} \\
+ \hline
+ \multicolumn{2}{|c|}{229.55} \\
+ \hline
+\end{tabular}
+\end{center}
+\noindent { \small $\it{Table {}1}$. This shows the number of steps Haskell
+needed to solve the regular Sudoku 20 times.}
+
+\begin{center}
+ \begin{tabular}{|c | c |}
+ \hline
+ \multicolumn{2}{|c|}{\textbf{Number of steps addGrid Sudoku}} \\[0.5ex]
+ \hline\hline
+ 238 & 30343  \\
+ \hline
+ 1598 & 355681 \\
+ \hline
+ 839 & 3279 \\
+ \hline
+ 1544 & 770 \\
+ \hline
+ 1548 & 13369 \\
+ \hline
+ 938 & 17853 \\
+ \hline
+ 496 & 9234 \\
+ \hline
+ 1247 & 7838 \\
+ \hline
+ 23577 & 1452 \\
+ \hline
+ 1604 & 7444 \\
+ \hline\hline
+ \textbf{3362.9} & \textbf{44726.3} \\
+ \hline
+ \multicolumn{2}{|c|}{24044.6} \\
+ \hline
+\end{tabular}
+\end{center}
+\noindent { \small $\it{Table {}2}$. This shows the number of steps Haskell
+needed to solve the Sudoku with additional grids 20 times.}
+
+\begin{center}
+ \begin{tabular}{|c | c |}
+ \hline
+ \multicolumn{2}{|c|}{\textbf{Number of steps diagonal Sudoku}} \\[0.5ex]
+ \hline\hline
+ 290 & 264  \\
+ \hline
+ 4376 & 146 \\
+ \hline
+ 343 & 1053 \\
+ \hline
+ 1311 & 1105 \\
+ \hline
+ 9870 & 26144 \\
+ \hline
+ 548 & 1926 \\
+ \hline
+ 977 & 1455 \\
+ \hline
+ 182 & 220 \\
+ \hline
+ 385 & 4136 \\
+ \hline
+ 2295 & 928 \\
+ \hline\hline
+ \textbf{2057.7} & \textbf{3737.7} \\
+ \hline
+ \multicolumn{2}{|c|}{2897.7} \\
+ \hline
+\end{tabular}
+\end{center}
+\noindent { \small $\it{Table {}3}$. This shows the number of steps Haskell
+needed to solve the diagonal Sudoku 20 times.}
+
+We see that the regular Sudoku on average requires the least number of steps (229.55 steps). Next
+in line is the diagonal Sudoku with 2897.7 steps on average. The Sudoku with four
+additional subgrids required most steps on average (24044.6 steps). However, there was
+one extreme result for this type of Sudoku (355681 steps) which considerably affected this
+average. Without this particular result, the average for this type of Sudoku is 6590.053 steps instead of
+24044.6. Even though the new average is still higher than that of the diagonal Sudoku,
+this shows that the results are subject to this type of fluctuations.
+
+\section{Discussion \& conclusion}
+In short, it appears that the results are relatively inconsistent, although a pattern
+can be detected. The regular Sudoku seems to require the least number of steps that
+Haskell needs, followed by the diagonal Sudoku. The Sudoku with four additional blocks
+requires by far most steps. In line with these results, the approximate computation time
+for Haskell for diagonal Sudokus and Sudokus with additional blocks exceeded that of the regular
+Sudokus.\\\\
+The results might be explained by the fact that normal Sudokus require less checking
+for Haskell, as they have the least number of requirements that need to be fulfilled.
+Furthermore, checking for additional subgrids each overlapped with four normal types of grids,
+perhaps causing the computation to become more complex. The diagonals, although seemingly similar to additional rows
+or columns, overlap with three normal subgrids and also need to fulfill $r + c == 10$ and $r == c$ for each of
+their elements. Apparently adding these constraints makes a difference in complexity when solving the Sudoku. Thus, a preliminary conclusion
+is that diagonal Sudokus and Sudokus with additional grids are indeed harder to solve
+for Haskell.\\\\
+In the current project it was assumed that every randomly generated Sudoku was
+approximately of the same difficulty. This is not straightforward, however: the random Sudoku generator sometimes may have happened to generate
+a rather easily solvable Sudoku, and other times a hard one. The number of Sudokus that
+was currently run (20 of each type) is not enough to take away possible effects caused by this (e.g. if it happened to generate easier Sudokus
+for the normal type in this experiment). In fact, as mentioned
+in the results section this seems to have been of influence on the averages. Thus, the
+results cannot yet be taken as reliable.\\\\
+It should also be kept in mind that there is no obvious and official way to measure the
+complexity of a Sudoku. The current method was only one way of analyzing the differences
+between the solving of different types of Sudokus. To give a more complete view of
+how Haskell solves different Sudokus, measures of other functions, computation time measurements and
+visualization of intermediate steps in the solving process can be taken into account.
+To be more precise it is necessary for there to be specific rules for what we define an easy or hard
+Sudoku problem.\\\\
+Something I did not have time to complete in the current project is to compare the
+results to binary puzzles. These are Sudoku-like puzzles that only work with values
+$0,1$ and require slightly different rules. Additionally, there are many other types
+of Sudokus that can still be investigated in Haskell, as well as the mentioned different measures
+of complexity.\\\\
+Below, the entire code of the project is displayed, with comments explaining what
+changes to the existing code were made.
+
+
+\clearpage
+
+% We include one file for each section. The ones containing code should
+% be called something.lhs and also mentioned in the .cabal file.
+
+\input{AllSudokusNew.lhs}
+
+\addcontentsline{toc}{section}{Bibliography}
+\bibliographystyle{alpha}
+\bibliography{references.bib}
+Code for regular Sudokus provided by Jan van Eijck, https://homepages.cwi.nl/~jve/courses/16/fsa/lab/FSAlab3.html
+
+\end{document}

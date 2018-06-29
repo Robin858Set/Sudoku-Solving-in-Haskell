@@ -1,0 +1,4 @@
+PWD C:/Users/Robin/Documents/GitHub/Sudoku-Solving-in-Haskell
+INPUT C:/Users/Robin/AppData/Local/MiKTeX/2.9/miktex/data/le/pdftex/pdflatex.fmt
+INPUT AllSudokusNew.lhs
+OUTPUT AllSudokusNew.log
